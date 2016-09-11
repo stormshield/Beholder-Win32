@@ -8,7 +8,7 @@ VOID ThreadNotification(__in HANDLE ProcessID, __in HANDLE ThreadID, __in BOOLEA
 
     if (Create == TRUE)
         return;
-        
+
     InjectContext = SearchForContext(ProcessID, ThreadID);
     if (InjectContext == NULL)
         return;

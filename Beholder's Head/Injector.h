@@ -13,4 +13,4 @@ typedef struct
 }   INJECT_CONTEXT, *PINJECT_CONTEXT;
 
 
-NTSTATUS			LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kernel32Size);
+NTSTATUS    LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kernel32Size);

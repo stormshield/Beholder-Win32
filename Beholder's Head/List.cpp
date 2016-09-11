@@ -13,7 +13,7 @@ static LIST_ENTRY  ContextHeadList = { 0 };
 NTSTATUS AddNewContext(__in PINJECT_CONTEXT NewContext)
 {
     PCTX_LIST   NewElement = NULL;
-    
+
     NewElement = (PCTX_LIST)ExAllocatePoolWithTag(PagedPool, sizeof(CTX_LIST), 'ewom');
     if (NewElement == NULL)
         return STATUS_NO_MEMORY;
@@ -57,7 +57,7 @@ PINJECT_CONTEXT SearchForContext(__in HANDLE ProcessID, __in HANDLE ThreadID)
 NTSTATUS InitContextList(VOID)
 {
     NTSTATUS Status = STATUS_UNSUCCESSFUL;
-    
+
     Status = ExInitializeResourceLite(&ContextListLock);
     if (!NT_SUCCESS(Status))
         return Status;

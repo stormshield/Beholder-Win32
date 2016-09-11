@@ -4,34 +4,37 @@
 #include "List.h"
 #include "../Beholder's Eye/DllParams.h"
 
-extern HANDLE gDllHandle;
+extern HANDLE gDllHandle32;
+#ifdef _AMD64_
+extern HANDLE gDllHandle64;
+#endif
 
 #define SEC_IMAGE       0x01000000
 #define SEC_NO_CHANGE   0x00400000
 
-typedef NTSTATUS (NTAPI *RtlCreateUserThreadFunc)(__in		HANDLE					ProcessHandle,
-												  __in_opt	PSECURITY_DESCRIPTOR	SecurityDescriptor,
-												  __in		BOOLEAN					CreateSuspended,
-												  __in		ULONG					StackZeroBits,
-												  __inout	PULONG					StackReserved,
-												  __inout	PULONG					StackCommit,
-												  __in		PVOID					StartAddress,
-												  __in_opt	PVOID					StartParameter,
-												  __out		PHANDLE					ThreadHandle,
-												  __out		PCLIENT_ID				ClientID);
+typedef NTSTATUS(NTAPI *RtlCreateUserThreadFunc)(__in		HANDLE                  ProcessHandle,
+                                                 __in_opt	PSECURITY_DESCRIPTOR    SecurityDescriptor,
+                                                 __in		BOOLEAN                 CreateSuspended,
+                                                 __in		ULONG                   StackZeroBits,
+                                                 __inout	PULONG                  StackReserved,
+                                                 __inout	PULONG                  StackCommit,
+                                                 __in		PVOID                   StartAddress,
+                                                 __in_opt	PVOID                   StartParameter,
+                                                 __out		PHANDLE                 ThreadHandle,
+                                                 __out		PCLIENT_ID              ClientID);
 
 
-NTSTATUS				LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kernel32Size)
+NTSTATUS                LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kernel32Size)
 {
-    NTSTATUS			Status = STATUS_UNSUCCESSFUL;
-    OBJECT_ATTRIBUTES	ObjectAttributes = { 0 };
-    PMDL				ParamMDL = NULL;
-    PVOID				SystemAddress = NULL;
-    CLIENT_ID			ClientID = { 0 };
-    SIZE_T				ViewSize = 0;
-    PDLL_PARAMS  		DllParam = NULL;
-    LARGE_INTEGER		MappingSize = { 0 };
-    PINJECT_CONTEXT		InjectContext = NULL;
+    NTSTATUS            Status = STATUS_UNSUCCESSFUL;
+    OBJECT_ATTRIBUTES   ObjectAttributes = { 0 };
+    PMDL                ParamMDL = NULL;
+    PVOID               SystemAddress = NULL;
+    CLIENT_ID           ClientID = { 0 };
+    SIZE_T              ViewSize = 0;
+    PDLL_PARAMS         DllParam = NULL;
+    LARGE_INTEGER       MappingSize = { 0 };
+    PINJECT_CONTEXT     InjectContext = NULL;
     HANDLE              ThreadHandle = NULL;
     HANDLE              ProcessHandle = NULL;
     PVOID               DllMappingAddress = NULL;
@@ -40,10 +43,12 @@ NTSTATUS				LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kern
     PVOID               InputMappingAddress = NULL;
     static RtlCreateUserThreadFunc RtlCreateUserThreadPtr = NULL;
 
+    __debugbreak();
+
     if (RtlCreateUserThreadPtr == NULL)
     {
         UNICODE_STRING	RtlCreateUserThreadStr = RTL_CONSTANT_STRING(L"RtlCreateUserThread");
-		RtlCreateUserThreadFunc RtlCreateUserThreadTemp = NULL;
+        RtlCreateUserThreadFunc RtlCreateUserThreadTemp = NULL;
 
         RtlCreateUserThreadTemp = (RtlCreateUserThreadFunc)MmGetSystemRoutineAddress((PUNICODE_STRING)&RtlCreateUserThreadStr);
         InterlockedCompareExchangePointer((PVOID*)&RtlCreateUserThreadPtr, (PVOID)RtlCreateUserThreadTemp, NULL);
@@ -54,7 +59,13 @@ NTSTATUS				LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kern
         return Status;
 
     InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
-    Status = ZwCreateSection(&DllSectionHandle, SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_QUERY, &ObjectAttributes, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, gDllHandle);
+#ifdef _AMD64_
+    if (IoIs32bitProcess(NULL) == FALSE)
+        Status = ZwCreateSection(&DllSectionHandle, SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_QUERY, &ObjectAttributes, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, gDllHandle64);
+    else
+#endif
+        Status = ZwCreateSection(&DllSectionHandle, SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_QUERY, &ObjectAttributes, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, gDllHandle32);
+
     if (!NT_SUCCESS(Status))
     {
         ZwClose(ProcessHandle);
@@ -135,28 +146,28 @@ NTSTATUS				LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kern
         ZwClose(ProcessHandle);
         return Status;
     }
-	
-	ZwClose(ThreadHandle);
 
-	InjectContext = (PINJECT_CONTEXT)ExAllocatePoolWithTag(PagedPool, sizeof(INJECT_CONTEXT), 'ewom');
-	if (InjectContext == NULL)
-	{
-		ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
-		ZwUnmapViewOfSection(ProcessHandle, InputMappingAddress);
-		ZwClose(InputSectionHandle);
-		ZwClose(DllSectionHandle);
-		ZwClose(ProcessHandle);
-		return STATUS_NO_MEMORY;
-	}
+    ZwClose(ThreadHandle);
 
-	InjectContext->ClientID = ClientID;
-	InjectContext->DllMappingAddress = DllMappingAddress;
-	InjectContext->DllSectionHandle = DllSectionHandle;
-	InjectContext->InputMappingAddress = InputMappingAddress;
-	InjectContext->InputSectionHandle = InputSectionHandle;
-	InjectContext->ProcessHandle = ProcessHandle;
+    InjectContext = (PINJECT_CONTEXT)ExAllocatePoolWithTag(PagedPool, sizeof(INJECT_CONTEXT), 'ewom');
+    if (InjectContext == NULL)
+    {
+        ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
+        ZwUnmapViewOfSection(ProcessHandle, InputMappingAddress);
+        ZwClose(InputSectionHandle);
+        ZwClose(DllSectionHandle);
+        ZwClose(ProcessHandle);
+        return STATUS_NO_MEMORY;
+    }
 
-	AddNewContext(InjectContext);
+    InjectContext->ClientID = ClientID;
+    InjectContext->DllMappingAddress = DllMappingAddress;
+    InjectContext->DllSectionHandle = DllSectionHandle;
+    InjectContext->InputMappingAddress = InputMappingAddress;
+    InjectContext->InputSectionHandle = InputSectionHandle;
+    InjectContext->ProcessHandle = ProcessHandle;
+
+    AddNewContext(InjectContext);
 
     return STATUS_SUCCESS;
 }
