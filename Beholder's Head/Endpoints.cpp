@@ -4,7 +4,6 @@
 
 HANDLE          gDllHandle = NULL;
 
-
 extern "C"
 NTSTATUS DriverEntry(__in PDRIVER_OBJECT DriverObject, __in PUNICODE_STRING RegistryPath)
 {
@@ -15,8 +14,6 @@ NTSTATUS DriverEntry(__in PDRIVER_OBJECT DriverObject, __in PUNICODE_STRING Regi
 
 	UNREFERENCED_PARAMETER(RegistryPath);
     UNREFERENCED_PARAMETER(DriverObject);
-
-    __debugbreak();
 
     InitializeObjectAttributes(&ObjectAttributes, &DllPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     Status = ZwCreateFile(&gDllHandle, GENERIC_EXECUTE, &ObjectAttributes, &IoStatusBlock, NULL, 0, 0, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);

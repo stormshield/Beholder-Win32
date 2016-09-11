@@ -2,7 +2,6 @@
 #include "List.h"
 #include "Injector.h"
 
-
 VOID ThreadNotification(__in HANDLE ProcessID, __in HANDLE ThreadID, __in BOOLEAN Create)
 {
     PINJECT_CONTEXT InjectContext = NULL;

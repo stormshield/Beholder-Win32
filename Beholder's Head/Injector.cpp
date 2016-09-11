@@ -2,60 +2,26 @@
 #include <ntddk.h>
 #include "Injector.h"
 #include "List.h"
+#include "../Beholder's Eye/DllParams.h"
 
 extern HANDLE gDllHandle;
-typedef struct
-{
-    PVOID   Kernel32Address;
-    SIZE_T  Kernel32Size;
-}   DLL_PARAMS, *PDLL_PARAMS;
 
 #define SEC_IMAGE       0x01000000
 #define SEC_NO_CHANGE   0x00400000
 
+typedef NTSTATUS (NTAPI *RtlCreateUserThreadFunc)(__in		HANDLE					ProcessHandle,
+												  __in_opt	PSECURITY_DESCRIPTOR	SecurityDescriptor,
+												  __in		BOOLEAN					CreateSuspended,
+												  __in		ULONG					StackZeroBits,
+												  __inout	PULONG					StackReserved,
+												  __inout	PULONG					StackCommit,
+												  __in		PVOID					StartAddress,
+												  __in_opt	PVOID					StartParameter,
+												  __out		PHANDLE					ThreadHandle,
+												  __out		PCLIENT_ID				ClientID);
 
-/*typedef NTSTATUS (NTAPI *RtlCreateUserThreadFunc)(__in		HANDLE					ProcessHandle,
-                                            __in_opt	PSECURITY_DESCRIPTOR	SecurityDescriptor,
-                                            __in		BOOLEAN					CreateSuspended,
-                                            __in		ULONG					StackZeroBits,
-                                            __inout		PULONG					StackReserved,
-                                            __inout		PULONG					StackCommit,
-                                            __in		PVOID					StartAddress,
-                                            __in_opt	PVOID					StartParameter,
-                                            __out		PHANDLE					ThreadHandle,
-                                            __out		PCLIENT_ID				ClientID);*/
 
-typedef struct _PS_ATTRIBUTE
-{
-    ULONG Attribute;
-    SIZE_T Size;
-    union
-    {
-        ULONG Value;
-        PVOID ValuePtr;
-    };
-    PSIZE_T ReturnLength;
-} PS_ATTRIBUTE, *PPS_ATTRIBUTE;
-
-typedef struct _PS_ATTRIBUTE_LIST
-{
-    SIZE_T TotalLength;
-    PS_ATTRIBUTE Attributes[1];
-} PS_ATTRIBUTE_LIST, *PPS_ATTRIBUTE_LIST;
-
-typedef NTSTATUS(NTAPI *ZwCreateThreadExFunc)(__out PHANDLE ThreadHandle,
-                                              __in ACCESS_MASK DesiredAccess,
-                                              __in_opt POBJECT_ATTRIBUTES ObjectAttributes,
-                                              __in HANDLE ProcessHandle,
-                                              __in PVOID StartRoutine, // PUSER_THREAD_START_ROUTINE
-                                              __in_opt PVOID Argument,
-                                              __in ULONG CreateFlags, // THREAD_CREATE_FLAGS_*
-                                              __in SIZE_T ZeroBits,
-                                              __in SIZE_T StackSize,
-                                              __in SIZE_T MaximumStackSize,
-                                              __in_opt PPS_ATTRIBUTE_LIST AttributeList);
-
-NTSTATUS			LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kernel32Size)
+NTSTATUS				LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kernel32Size)
 {
     NTSTATUS			Status = STATUS_UNSUCCESSFUL;
     OBJECT_ATTRIBUTES	ObjectAttributes = { 0 };
@@ -72,16 +38,14 @@ NTSTATUS			LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kerne
     HANDLE              DllSectionHandle = NULL;
     HANDLE              InputSectionHandle = NULL;
     PVOID               InputMappingAddress = NULL;
-    static ZwCreateThreadExFunc RtlCreateUserThreadPtr = NULL;
-    PS_ATTRIBUTE_LIST   PsAttributes = { 0 };
-    ULONG               Dummy = 0;
+    static RtlCreateUserThreadFunc RtlCreateUserThreadPtr = NULL;
 
     if (RtlCreateUserThreadPtr == NULL)
     {
-        UNICODE_STRING	RtlCreateUserThreadStr = RTL_CONSTANT_STRING(L"ZwCreateThreadEx");
-        ZwCreateThreadExFunc RtlCreateUserThreadTemp = NULL;
+        UNICODE_STRING	RtlCreateUserThreadStr = RTL_CONSTANT_STRING(L"RtlCreateUserThread");
+		RtlCreateUserThreadFunc RtlCreateUserThreadTemp = NULL;
 
-        RtlCreateUserThreadTemp = (ZwCreateThreadExFunc)MmGetSystemRoutineAddress((PUNICODE_STRING)&RtlCreateUserThreadStr);
+        RtlCreateUserThreadTemp = (RtlCreateUserThreadFunc)MmGetSystemRoutineAddress((PUNICODE_STRING)&RtlCreateUserThreadStr);
         InterlockedCompareExchangePointer((PVOID*)&RtlCreateUserThreadPtr, (PVOID)RtlCreateUserThreadTemp, NULL);
     }
 
@@ -161,28 +125,7 @@ NTSTATUS			LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kerne
 
     IoFreeMdl(ParamMDL);
 
-    InjectContext = (PINJECT_CONTEXT)ExAllocatePoolWithTag(PagedPool, sizeof(INJECT_CONTEXT), 'ewom');
-    if (InjectContext == NULL)
-    {
-        ZwClose(ProcessHandle);
-        return STATUS_NO_MEMORY;
-    }
-
-    InjectContext->DllMappingAddress = DllMappingAddress;
-    InjectContext->DllSectionHandle = DllSectionHandle;
-    InjectContext->InputMappingAddress = InputMappingAddress;
-    InjectContext->InputSectionHandle = InputSectionHandle;
-    InjectContext->ProcessHandle = ProcessHandle;
-    AddNewContext(InjectContext);
-
-    PsAttributes.TotalLength = sizeof(PS_ATTRIBUTE);
-    PsAttributes.Attributes[0].Attribute = 0x00010003;
-    PsAttributes.Attributes[0].Size = 8;
-    PsAttributes.Attributes[0].ValuePtr = &Dummy;
-    PsAttributes.Attributes[0].ReturnLength = NULL;
-
-
-    Status = RtlCreateUserThreadPtr(&ThreadHandle, STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL, &ObjectAttributes, ProcessHandle, (PUCHAR)DllMappingAddress + 0x11005, InputMappingAddress, 0, 0, 0, 0, &PsAttributes);
+    Status = RtlCreateUserThreadPtr(ProcessHandle, NULL, FALSE, 0, 0, 0, (PUCHAR)DllMappingAddress + 0x11005, InputMappingAddress, &ThreadHandle, &ClientID);
     if (!NT_SUCCESS(Status))
     {
         ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
@@ -192,9 +135,28 @@ NTSTATUS			LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in SIZE_T Kerne
         ZwClose(ProcessHandle);
         return Status;
     }
+	
+	ZwClose(ThreadHandle);
 
-    InjectContext->ClientID = ClientID;
-    InjectContext->ThreadHandle = ThreadHandle;
+	InjectContext = (PINJECT_CONTEXT)ExAllocatePoolWithTag(PagedPool, sizeof(INJECT_CONTEXT), 'ewom');
+	if (InjectContext == NULL)
+	{
+		ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
+		ZwUnmapViewOfSection(ProcessHandle, InputMappingAddress);
+		ZwClose(InputSectionHandle);
+		ZwClose(DllSectionHandle);
+		ZwClose(ProcessHandle);
+		return STATUS_NO_MEMORY;
+	}
+
+	InjectContext->ClientID = ClientID;
+	InjectContext->DllMappingAddress = DllMappingAddress;
+	InjectContext->DllSectionHandle = DllSectionHandle;
+	InjectContext->InputMappingAddress = InputMappingAddress;
+	InjectContext->InputSectionHandle = InputSectionHandle;
+	InjectContext->ProcessHandle = ProcessHandle;
+
+	AddNewContext(InjectContext);
 
     return STATUS_SUCCESS;
 }

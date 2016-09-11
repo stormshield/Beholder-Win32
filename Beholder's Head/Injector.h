@@ -9,7 +9,6 @@ typedef struct
     PVOID       DllMappingAddress;
     HANDLE      InputSectionHandle;
     PVOID       InputMappingAddress;
-    HANDLE      ThreadHandle;
     CLIENT_ID   ClientID;
 }   INJECT_CONTEXT, *PINJECT_CONTEXT;
 
