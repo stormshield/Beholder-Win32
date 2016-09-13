@@ -20,9 +20,7 @@ NTSTATUS DriverEntry(__in PDRIVER_OBJECT DriverObject, __in PUNICODE_STRING Regi
 
     UNREFERENCED_PARAMETER(RegistryPath);
     UNREFERENCED_PARAMETER(DriverObject);
-
-    __debugbreak();
-
+    
     InitializeObjectAttributes(&ObjectAttributes, &DllPath32, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     Status = ZwCreateFile(&gDllHandle32, GENERIC_EXECUTE, &ObjectAttributes, &IoStatusBlock, NULL, 0, 0, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
     if (!NT_SUCCESS(Status))

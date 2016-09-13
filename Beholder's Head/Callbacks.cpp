@@ -29,6 +29,9 @@ VOID    LoadImageNotification(__in_opt PUNICODE_STRING FullImageName, __in HANDL
 
     UNREFERENCED_PARAMETER(ProcessId);
 
+    // Don't mind that part too much. This is just here in order to inject once in each process, but this is not reliable at all!
+    // Consider this not safe at all in the real world. You should keep some kind of information about your injection status in each process
+    // You have no reason to wait for anything else than ntdll otherwise (unless you explicitely need k32 to be loaded before your injection).
     if (FullImageName == NULL ||
         FullImageName->Buffer == NULL ||
         FullImageName->Length < (sizeof(L"kernel32.dll") - 2) ||

@@ -43,8 +43,6 @@ NTSTATUS                LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in
     PVOID               InputMappingAddress = NULL;
     static RtlCreateUserThreadFunc RtlCreateUserThreadPtr = NULL;
 
-    __debugbreak();
-
     if (RtlCreateUserThreadPtr == NULL)
     {
         UNICODE_STRING	RtlCreateUserThreadStr = RTL_CONSTANT_STRING(L"RtlCreateUserThread");
@@ -59,13 +57,14 @@ NTSTATUS                LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in
         return Status;
 
     InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+
 #ifdef _AMD64_
     if (IoIs32bitProcess(NULL) == FALSE)
         Status = ZwCreateSection(&DllSectionHandle, SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_QUERY, &ObjectAttributes, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, gDllHandle64);
     else
 #endif
-        Status = ZwCreateSection(&DllSectionHandle, SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_QUERY, &ObjectAttributes, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, gDllHandle32);
 
+    Status = ZwCreateSection(&DllSectionHandle, SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_QUERY, &ObjectAttributes, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, gDllHandle32);
     if (!NT_SUCCESS(Status))
     {
         ZwClose(ProcessHandle);
@@ -114,11 +113,25 @@ NTSTATUS                LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in
         return STATUS_UNSUCCESSFUL;
     }
 
-    MmProbeAndLockPages(ParamMDL, UserMode, IoReadAccess);
+    __try
+    {
+        MmProbeAndLockPages(ParamMDL, UserMode, IoReadAccess);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        IoFreeMdl(ParamMDL);
+        ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
+        ZwUnmapViewOfSection(ProcessHandle, InputMappingAddress);
+        ZwClose(InputSectionHandle);
+        ZwClose(DllSectionHandle);
+        ZwClose(ProcessHandle);
+        return STATUS_UNSUCCESSFUL;
+    }
 
     SystemAddress = MmGetSystemAddressForMdlSafe(ParamMDL, NormalPagePriority);
     if (SystemAddress == NULL)
     {
+        MmUnlockPages(ParamMDL);
         IoFreeMdl(ParamMDL);
         ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
         ZwUnmapViewOfSection(ProcessHandle, InputMappingAddress);
@@ -134,9 +147,13 @@ NTSTATUS                LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in
     DllParam->Kernel32Address = Kernel32Address;
     DllParam->Kernel32Size = Kernel32Size;
 
+    MmUnlockPages(ParamMDL);
     IoFreeMdl(ParamMDL);
 
-    Status = RtlCreateUserThreadPtr(ProcessHandle, NULL, FALSE, 0, 0, 0, (PUCHAR)DllMappingAddress + 0x11005, InputMappingAddress, &ThreadHandle, &ClientID);
+    // There is one error you may want to handle specifically: STATUS_PROCESS_IS_TERMINATING
+    // Quite self explanatory: process is shuting down, all you injection attempts will fail
+    // Remember to find the entry point offset dynamically, rather than hardcoding the 0x1000 as I do here
+    Status = RtlCreateUserThreadPtr(ProcessHandle, NULL, FALSE, 0, 0, 0, (PUCHAR)DllMappingAddress + 0x1000, InputMappingAddress, &ThreadHandle, &ClientID);
     if (!NT_SUCCESS(Status))
     {
         ZwUnmapViewOfSection(ProcessHandle, DllSectionHandle);
@@ -160,6 +177,9 @@ NTSTATUS                LoadDllInCurrentProcess(__in PVOID Kernel32Address, __in
         return STATUS_NO_MEMORY;
     }
 
+    // This is quite borderline. The thread has been created and you cannot be sure that it hasn't already finished.
+    // In that case, the thread notification callback would've already been called, and you will not free/close these resources.
+    // You will probably have some ghosts processes remaining in memory. It's easy to fix :)
     InjectContext->ClientID = ClientID;
     InjectContext->DllMappingAddress = DllMappingAddress;
     InjectContext->DllSectionHandle = DllSectionHandle;
